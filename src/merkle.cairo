@@ -16,6 +16,7 @@ mod Merkle {
     use traits::{Into, TryInto};
     use array::ArrayTrait;
     use option::OptionTrait;
+    use hash::LegacyHash;
 
     use alexandria::math::fast_power::fast_power;
 
@@ -186,13 +187,9 @@ mod Merkle {
         self.sibling_path.write(height, current_leaf);
 
         // Hash the current leaf with itself and recurse
-
-        let mut hash_input = ArrayTrait::new();
-        hash_input.append(current_leaf);
-        hash_input.append(current_leaf);
-
-        let next_leaf = *poseidon_hash(hash_input.span(), 1, // num_elements
-         )[0];
+        // The `.into()` call here reduces the `felt252` output of the Pedersen hash
+        // into the scalar field
+        let next_leaf = LegacyHash::hash(current_leaf.inner, current_leaf).into();
         setup_empty_tree(ref self, height - 1, next_leaf)
     }
 
@@ -257,17 +254,14 @@ mod Merkle {
         // the index being inserted into
         let mut next_value = 0.into();
         let mut new_subtree_filled = false;
-        let mut hash_input = ArrayTrait::new();
+        // The `.into()` calls here reduces the `felt252` output of the Pedersen hash
+        // into the scalar field
         if is_left {
-            hash_input.append(value);
-            hash_input.append(current_sibling_value);
+            next_value = LegacyHash::hash(value.inner, current_sibling_value).into();
         } else {
-            hash_input.append(current_sibling_value);
-            hash_input.append(value);
+            next_value = LegacyHash::hash(current_sibling_value.inner, value).into();
             new_subtree_filled = subtree_filled;
         }
-        next_value = *poseidon_hash(hash_input.span(), 1, // num_elements
-         )[0];
 
         // Emit an event indicating that the internal node has changed
         self
