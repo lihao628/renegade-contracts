@@ -6,14 +6,14 @@ use array::{ArrayTrait, ArrayTCloneImpl, SpanTrait};
 use serde::Serde;
 use ec::EcPoint;
 use starknet::{
-    StorageAccess, SyscallResult, SyscallResultTrait,
+    Store, SyscallResult, SyscallResultTrait,
     storage_access::{
         StorageBaseAddress, storage_address_from_base, storage_address_from_base_and_offset,
     },
     syscalls::{storage_read_syscall, storage_write_syscall}
 };
 
-use alexandria::data_structures::array_ext::ArrayTraitExt;
+use alexandria_data_structures::array_ext::ArrayTraitExt;
 
 use super::serde::EcPointSerde;
 
@@ -22,37 +22,35 @@ use super::serde::EcPointSerde;
 // If we were to do a blanket implementation directly on types that impl Serde, we'd have conflicting
 // StorageAccess implementations for some types.
 #[derive(Drop)]
-struct StorageAccessSerdeWrapper<T> {
+struct StoreSerdeWrapper<T> {
     inner: T
 }
 
-impl StorageAccessSerdeImpl<T, impl TSerde: Serde<T>> of Serde<StorageAccessSerdeWrapper<T>> {
-    fn serialize(self: @StorageAccessSerdeWrapper<T>, ref output: Array<felt252>) {
+impl WrapperSerdeImpl<T, impl TSerde: Serde<T>> of Serde<StoreSerdeWrapper<T>> {
+    fn serialize(self: @StoreSerdeWrapper<T>, ref output: Array<felt252>) {
         let mut inner_output = ArrayTrait::new();
         self.inner.serialize(ref inner_output);
         output.append(inner_output.len().into());
         output.append_all(ref inner_output);
     }
 
-    fn deserialize(ref serialized: Span<felt252>) -> Option<StorageAccessSerdeWrapper<T>> {
+    fn deserialize(ref serialized: Span<felt252>) -> Option<StoreSerdeWrapper<T>> {
         serialized.pop_front()?;
         let inner = Serde::<T>::deserialize(ref serialized)?;
-        Option::Some(StorageAccessSerdeWrapper { inner })
+        Option::Some(StoreSerdeWrapper { inner })
     }
 }
 
-impl StorageSerdeImpl<
+impl WrapperStoreImpl<
     T, impl Tserde: Serde<T>, impl TDrop: Drop<T>
-> of StorageAccess<StorageAccessSerdeWrapper<T>> {
-    fn read(
-        address_domain: u32, base: StorageBaseAddress
-    ) -> SyscallResult<StorageAccessSerdeWrapper<T>> {
-        StorageSerdeImpl::<T>::read_at_offset_internal(address_domain, base, 0)
+> of Store<StoreSerdeWrapper<T>> {
+    fn read(address_domain: u32, base: StorageBaseAddress) -> SyscallResult<StoreSerdeWrapper<T>> {
+        WrapperStoreImpl::<T>::read_at_offset(address_domain, base, 0)
     }
 
-    fn read_at_offset_internal(
+    fn read_at_offset(
         address_domain: u32, base: StorageBaseAddress, offset: u8
-    ) -> SyscallResult<StorageAccessSerdeWrapper<T>> {
+    ) -> SyscallResult<StoreSerdeWrapper<T>> {
         // Read serialization len, add 1 to account for the len slot
         let num_slots: u8 = storage_read_syscall(address_domain, storage_address_from_base(base))?
             .try_into()
@@ -75,7 +73,7 @@ impl StorageSerdeImpl<
         let mut serialized_span = serialized.span();
 
         // This deserialize expects to pop off the len slot
-        match Serde::<StorageAccessSerdeWrapper<T>>::deserialize(ref serialized_span) {
+        match Serde::<StoreSerdeWrapper<T>>::deserialize(ref serialized_span) {
             Option::Some(val) => Result::Ok(val),
             Option::None(_) => {
                 let mut data = ArrayTrait::new();
@@ -86,16 +84,13 @@ impl StorageSerdeImpl<
     }
 
     fn write(
-        address_domain: u32, base: StorageBaseAddress, value: StorageAccessSerdeWrapper<T>
+        address_domain: u32, base: StorageBaseAddress, value: StoreSerdeWrapper<T>
     ) -> SyscallResult<()> {
-        StorageSerdeImpl::<T>::write_at_offset_internal(address_domain, base, 0, value)
+        WrapperStoreImpl::<T>::write_at_offset(address_domain, base, 0, value)
     }
 
-    fn write_at_offset_internal(
-        address_domain: u32,
-        base: StorageBaseAddress,
-        offset: u8,
-        value: StorageAccessSerdeWrapper<T>
+    fn write_at_offset(
+        address_domain: u32, base: StorageBaseAddress, offset: u8, value: StoreSerdeWrapper<T>
     ) -> SyscallResult<()> {
         // Acts as an assertion that serialization len <= 255
         let mut serialized = ArrayTrait::new();
@@ -122,10 +117,8 @@ impl StorageSerdeImpl<
         Result::Ok(())
     }
 
-    fn size_internal(value: StorageAccessSerdeWrapper<T>) -> u8 {
+    fn size() -> u8 {
         // Acts as an assertion that serialization len <= 255
-        let mut serialized = ArrayTrait::new();
-        value.serialize(ref serialized);
-        (*(@serialized).at(0_usize)).try_into().expect('Storage - value too large')
+        1
     }
 }
