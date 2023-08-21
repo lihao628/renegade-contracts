@@ -7,8 +7,8 @@ use tracing::{debug, info};
 use crate::{
     cli::{Contract, DeployArgs},
     commands::utils::{
-        deploy_darkpool, deploy_merkle, deploy_nullifier_set, initialize, setup_account,
-        MERKLE_HEIGHT,
+        deploy_darkpool, deploy_merkle, deploy_nullifier_set, dump_deployment, initialize,
+        setup_account, MERKLE_HEIGHT,
     },
 };
 
@@ -19,6 +19,7 @@ pub async fn deploy_and_initialize(args: DeployArgs) -> Result<()> {
         merkle_class_hash,
         nullifier_set_class_hash,
         initialize: should_initialize,
+        dump_deployments,
         address,
         artifacts_path,
         network,
@@ -30,7 +31,7 @@ pub async fn deploy_and_initialize(args: DeployArgs) -> Result<()> {
     let address_felt = FieldElement::from_hex_be(&address)?;
     let account = setup_account(address_felt, private_key, network)?;
 
-    match contract {
+    let deployed_addr = match contract {
         Contract::Darkpool => {
             let (
                 darkpool_address,
@@ -78,6 +79,8 @@ pub async fn deploy_and_initialize(args: DeployArgs) -> Result<()> {
                     initialization_result.transaction_hash,
                 );
             }
+
+            darkpool_address
         }
         Contract::Merkle => {
             let (merkle_address, merkle_class_hash_felt, transaction_hash) =
@@ -103,6 +106,8 @@ pub async fn deploy_and_initialize(args: DeployArgs) -> Result<()> {
                     initialization_result.transaction_hash,
                 );
             }
+
+            merkle_address
         }
         Contract::NullifierSet => {
             let (nullifier_set_address, nullifier_set_class_hash_felt, transaction_hash) =
@@ -114,8 +119,14 @@ pub async fn deploy_and_initialize(args: DeployArgs) -> Result<()> {
                 Nullifier set class hash: {:#64x}\n\
                 Transaction hash: {:#64x}\n",
                 nullifier_set_address, nullifier_set_class_hash_felt, transaction_hash,
-            )
+            );
+
+            nullifier_set_address
         }
+    };
+
+    if dump_deployments {
+        dump_deployment(deployed_addr, contract)?;
     }
 
     Ok(())
