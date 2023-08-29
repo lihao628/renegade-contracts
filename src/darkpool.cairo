@@ -505,7 +505,7 @@ mod Darkpool {
             if !next_transfer.is_withdrawal {
                 // Deposit
                 erc20
-                    .transfer_from(
+                    .transferFrom(
                         next_transfer.account_addr, contract_address, next_transfer.amount
                     );
 

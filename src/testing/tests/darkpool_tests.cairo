@@ -269,8 +269,8 @@ fn test_update_wallet_deposit() {
         );
 
     let test_caller = contract_address_try_from_felt252(TEST_CALLER).unwrap();
-    let caller_balance = dummy_erc20.balance_of(test_caller);
-    let darkpool_balance = dummy_erc20.balance_of(darkpool.contract_address);
+    let caller_balance = dummy_erc20.balanceOf(test_caller);
+    let darkpool_balance = dummy_erc20.balanceOf(darkpool.contract_address);
 
     assert(caller_balance == INIT_BALANCE - TRANSFER_AMOUNT, 'incorrect caller balance');
     assert(darkpool_balance == INIT_BALANCE + TRANSFER_AMOUNT, 'incorrect darkpool balance');
@@ -311,8 +311,8 @@ fn test_update_wallet_withdrawal() {
 
     let test_caller = contract_address_try_from_felt252(TEST_CALLER).unwrap();
 
-    let caller_balance = dummy_erc20.balance_of(test_caller);
-    let darkpool_balance = dummy_erc20.balance_of(darkpool.contract_address);
+    let caller_balance = dummy_erc20.balanceOf(test_caller);
+    let darkpool_balance = dummy_erc20.balanceOf(darkpool.contract_address);
 
     assert(caller_balance == INIT_BALANCE + TRANSFER_AMOUNT, 'incorrect caller balance');
     assert(darkpool_balance == INIT_BALANCE - TRANSFER_AMOUNT, 'incorrect darkpool balance');
