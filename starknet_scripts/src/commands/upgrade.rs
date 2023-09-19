@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use eyre::Result;
+use eyre::{eyre, Result};
 use starknet::{
     accounts::{Account, Call},
     core::{
@@ -37,6 +37,7 @@ pub async fn upgrade(args: UpgradeArgs) -> Result<()> {
         Contract::Darkpool => DARKPOOL_CONTRACT_NAME,
         Contract::Merkle => MERKLE_CONTRACT_NAME,
         Contract::NullifierSet => NULLIFIER_SET_CONTRACT_NAME,
+        _ => return Err(eyre!("Upgrades unsupported for {contract}")),
     };
 
     // Setup account
@@ -60,6 +61,7 @@ pub async fn upgrade(args: UpgradeArgs) -> Result<()> {
         Contract::Darkpool => UPGRADE_DARKPOOL_FN_NAME,
         Contract::Merkle => UPGRADE_MERKLE_FN_NAME,
         Contract::NullifierSet => UPGRADE_NULLIFIER_SET_FN_NAME,
+        _ => return Err(eyre!("Upgrades unsupported for {contract}")),
     })?;
 
     debug!("Upgrading contract...");

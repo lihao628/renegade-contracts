@@ -7,11 +7,11 @@ use clap::{Args, ValueEnum};
 // TODO: Move everything except for `CliArgs` and `Commands` into library crate,
 // and the former into the binary crate.
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 pub struct DeployArgs {
     #[arg(short, long, long_help)]
     /// The contract to deploy
-    pub contract: Contract,
+    pub contracts: Vec<Contract>,
 
     #[arg(long, long_help)]
     /// The class hash of the darkpool contract, in hex form.
@@ -109,11 +109,12 @@ pub struct UpgradeArgs {
     pub private_key: String,
 }
 
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq, Eq, Hash)]
 pub enum Contract {
     Darkpool,
     Merkle,
     NullifierSet,
+    USDC,
 }
 
 impl Display for Contract {
@@ -122,6 +123,7 @@ impl Display for Contract {
             Contract::Darkpool => "darkpool",
             Contract::Merkle => "merkle",
             Contract::NullifierSet => "nullifier_set",
+            Contract::USDC => "usdc",
         };
         write!(f, "{s}")
     }

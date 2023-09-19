@@ -16,6 +16,7 @@ use starknet::{
     signers::{LocalWallet, SigningKey},
 };
 use std::{
+    collections::HashMap,
     fs::File,
     io::Read,
     path::{Path, PathBuf},
@@ -48,12 +49,15 @@ const ADDR_BOUND: FieldElement = FieldElement::from_mont([
 pub const DARKPOOL_CONTRACT_NAME: &str = "renegade_contracts_Darkpool";
 pub const MERKLE_CONTRACT_NAME: &str = "renegade_contracts_Merkle";
 pub const NULLIFIER_SET_CONTRACT_NAME: &str = "renegade_contracts_NullifierSet";
+pub const ERC20_CONTRACT_NAME: &str = "renegade_contracts_DummyERC20";
 
 pub const SIERRA_FILE_EXTENSION: &str = "sierra.json";
 pub const CASM_FILE_EXTENSION: &str = "casm.json";
 
 pub const INITIALIZE_FN_NAME: &str = "initialize";
 pub const MERKLE_HEIGHT: usize = 32;
+
+pub const INITIAL_USDC_BALANCE: u64 = 1_000_000_000; // 1 billion usdc
 
 /// The name of the file to dump deployments info to in the current working directory
 pub const DEPLOYMENTS_FILE_NAME: &str = "deployments.json";
@@ -104,7 +108,9 @@ pub fn get_artifacts(artifacts_path: &str, contract_name: &str) -> (PathBuf, Pat
 ///             <contract_name>: <contract_address>
 ///         }
 ///    }
-pub fn dump_deployment(addr: FieldElement, contract: Contract) -> Result<()> {
+///
+/// Expects as input a mapping from deployed contracts to their addresses
+pub fn dump_deployments(addr_map: HashMap<Contract, FieldElement>) -> Result<()> {
     // Load an existing deployments file if it exists
     let mut deployments = if let Ok(mut file) = File::open(DEPLOYMENTS_FILE_NAME) {
         let mut file_contents = String::new();
@@ -117,8 +123,10 @@ pub fn dump_deployment(addr: FieldElement, contract: Contract) -> Result<()> {
     };
 
     // Add a new deployment to the file contents
-    deployments["deployments"][contract.to_string().to_lowercase()] =
-        JsonValue::String(format!("0x{addr:x}"));
+    for (contract, addr) in addr_map.into_iter() {
+        deployments["deployments"][contract.to_string().to_lowercase()] =
+            JsonValue::String(format!("0x{addr:x}"));
+    }
 
     // Write the new deployments file
     let mut file =
@@ -334,4 +342,32 @@ pub async fn deploy_nullifier_set(
         nullifier_set_class_hash_felt,
         transaction_hash,
     ))
+}
+
+pub async fn deploy_usdc_erc20(
+    artifacts_path: String,
+    account: &ScriptAccount,
+) -> Result<(FieldElement, FieldElement, FieldElement)> {
+    let (usdc_sierra_path, usdc_casm_path) = get_artifacts(&artifacts_path, ERC20_CONTRACT_NAME);
+    let usdc_class_hash_felt =
+        get_or_declare(None, usdc_sierra_path, usdc_casm_path, account).await?;
+
+    // Deploy USDC
+    debug!("Deploying USDC contract...");
+
+    let calldata = vec![
+        cairo_short_string_to_felt("usdc").unwrap(), // Name
+        cairo_short_string_to_felt("USDC").unwrap(), // Symbol
+        FieldElement::from(INITIAL_USDC_BALANCE),    // Initial supply, low bits
+        FieldElement::ZERO,                          // Initial supply, high bits
+        FieldElement::from(1u8),                     // Recipients length
+        account.address(),                           // Recipient
+    ];
+
+    let InvokeTransactionResult {
+        transaction_hash, ..
+    } = deploy(account, usdc_class_hash_felt, &calldata).await?;
+    let usdc_address = calculate_contract_address(usdc_class_hash_felt, &calldata);
+
+    Ok((usdc_address, usdc_class_hash_felt, transaction_hash))
 }
