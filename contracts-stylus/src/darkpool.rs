@@ -3,6 +3,7 @@
 
 use alloc::vec::Vec;
 use common::{
+    constants::HASH_OUTPUT_SIZE,
     serde_def_types::SerdeScalarField,
     types::{
         MatchPayload, ScalarField, ValidMatchSettleStatement, ValidWalletCreateStatement,
@@ -13,8 +14,9 @@ use stylus_sdk::{
     abi::Bytes,
     alloy_primitives::{aliases::B256, Address},
     call::static_call,
+    crypto::keccak,
     prelude::*,
-    storage::{StorageAddress, StorageBool, StorageBytes, StorageMap},
+    storage::{StorageAddress, StorageBool, StorageFixedBytes, StorageMap},
 };
 
 use crate::{
@@ -38,9 +40,9 @@ pub struct DarkpoolContract {
     /// boolean indicating whether or not the nullifier is spent
     nullifier_set: StorageMap<SolScalar, StorageBool>,
 
-    /// The set of verification keys, representing a mapping from a circuit ID
-    /// to a serialized verification key
-    verification_keys: StorageMap<u8, StorageBytes>,
+    /// The set of verification keys hashes, representing a mapping from a circuit ID
+    /// to the Keccak256 hash of a serialized verification key
+    verification_key_hashes: StorageMap<u8, StorageFixedBytes<HASH_OUTPUT_SIZE>>,
 }
 
 #[external]
@@ -55,32 +57,34 @@ impl DarkpoolContract {
         Ok(())
     }
 
-    // TODO: Remove `set_*_circuit_id` & `add_verification_key` methods in favor of a single
-    // `set_circuit` method after implementing enum ABI
-
     /// Sets the verification key for the `VALID_WALLET_CREATE` circuit
-    pub fn set_valid_wallet_create_vkey(&mut self, vkey: Bytes) -> Result<(), Vec<u8>> {
-        self.set_vkey(VALID_WALLET_CREATE_CIRCUIT_ID, vkey)
+    pub fn set_valid_wallet_create_vkey_hash(&mut self, vkey_hash: B256) -> Result<(), Vec<u8>> {
+        self.set_vkey_hash(VALID_WALLET_CREATE_CIRCUIT_ID, vkey_hash);
+        Ok(())
     }
 
     /// Sets the verification key for the `VALID_WALLET_UPDATE` circuit
-    pub fn set_valid_wallet_update_vkey(&mut self, vkey: Bytes) -> Result<(), Vec<u8>> {
-        self.set_vkey(VALID_WALLET_UPDATE_CIRCUIT_ID, vkey)
+    pub fn set_valid_wallet_update_vkey_hash(&mut self, vkey_hash: B256) -> Result<(), Vec<u8>> {
+        self.set_vkey_hash(VALID_WALLET_UPDATE_CIRCUIT_ID, vkey_hash);
+        Ok(())
     }
 
     /// Sets the verification key for the `VALID_COMMITMENTS` circuit
-    pub fn set_valid_commitments_vkey(&mut self, vkey: Bytes) -> Result<(), Vec<u8>> {
-        self.set_vkey(VALID_COMMITMENTS_CIRCUIT_ID, vkey)
+    pub fn set_valid_commitments_vkey_hash(&mut self, vkey_hash: B256) -> Result<(), Vec<u8>> {
+        self.set_vkey_hash(VALID_COMMITMENTS_CIRCUIT_ID, vkey_hash);
+        Ok(())
     }
 
     /// Sets the verification key for the `VALID_REBLIND` circuit
-    pub fn set_valid_reblind_vkey(&mut self, vkey: Bytes) -> Result<(), Vec<u8>> {
-        self.set_vkey(VALID_REBLIND_CIRCUIT_ID, vkey)
+    pub fn set_valid_reblind_vkey_hash(&mut self, vkey_hash: B256) -> Result<(), Vec<u8>> {
+        self.set_vkey_hash(VALID_REBLIND_CIRCUIT_ID, vkey_hash);
+        Ok(())
     }
 
     /// Sets the verification key for the `VALID_MATCH_SETTLE` circuit
-    pub fn set_valid_match_settle_vkey(&mut self, vkey: Bytes) -> Result<(), Vec<u8>> {
-        self.set_vkey(VALID_MATCH_SETTLE_CIRCUIT_ID, vkey)
+    pub fn set_valid_match_settle_vkey_hash(&mut self, vkey_hash: B256) -> Result<(), Vec<u8>> {
+        self.set_vkey_hash(VALID_MATCH_SETTLE_CIRCUIT_ID, vkey_hash);
+        Ok(())
     }
 
     // -----------
@@ -101,6 +105,7 @@ impl DarkpoolContract {
     pub fn new_wallet(
         &mut self,
         _wallet_blinder_share: SolScalar,
+        vkey: Bytes,
         proof: Bytes,
         valid_wallet_create_statement_bytes: Bytes,
     ) -> Result<(), Vec<u8>> {
@@ -112,7 +117,7 @@ impl DarkpoolContract {
             .into();
 
         assert!(
-            self.verify(VALID_WALLET_CREATE_CIRCUIT_ID, proof, public_inputs)?,
+            self.verify(VALID_WALLET_CREATE_CIRCUIT_ID, vkey, proof, public_inputs)?,
             "`VALID_WALLET_CREATE` proof invalid"
         );
 
@@ -127,6 +132,7 @@ impl DarkpoolContract {
     pub fn update_wallet(
         &mut self,
         _wallet_blinder_share: SolScalar,
+        vkey: Bytes,
         proof: Bytes,
         valid_wallet_update_statement_bytes: Bytes,
         _public_inputs_signature: Bytes,
@@ -144,7 +150,7 @@ impl DarkpoolContract {
             .into();
 
         assert!(
-            self.verify(VALID_WALLET_UPDATE_CIRCUIT_ID, proof, public_inputs)?,
+            self.verify(VALID_WALLET_UPDATE_CIRCUIT_ID, vkey, proof, public_inputs)?,
             "`VALID_WALLET_UPDATE` proof invalid"
         );
 
@@ -172,6 +178,9 @@ impl DarkpoolContract {
         party_1_valid_reblind_proof: Bytes,
         valid_match_settle_proof: Bytes,
         valid_match_settle_statement: Bytes,
+        valid_commitments_vkey: Bytes,
+        valid_reblind_vkey: Bytes,
+        valid_match_settle_vkey: Bytes,
     ) -> Result<(), Vec<u8>> {
         let party_0_match_payload: MatchPayload =
             postcard::from_bytes(party_0_match_payload.as_slice()).unwrap();
@@ -194,6 +203,7 @@ impl DarkpoolContract {
         assert!(
             self.verify(
                 VALID_COMMITMENTS_CIRCUIT_ID,
+                valid_commitments_vkey.clone(),
                 party_0_valid_commitments_proof,
                 party_0_valid_commitments_public_inputs
             )?,
@@ -209,6 +219,7 @@ impl DarkpoolContract {
         assert!(
             self.verify(
                 VALID_COMMITMENTS_CIRCUIT_ID,
+                valid_commitments_vkey,
                 party_1_valid_commitments_proof,
                 party_1_valid_commitments_public_inputs
             )?,
@@ -223,6 +234,7 @@ impl DarkpoolContract {
         assert!(
             self.verify(
                 VALID_REBLIND_CIRCUIT_ID,
+                valid_reblind_vkey.clone(),
                 party_0_valid_reblind_proof,
                 party_0_valid_reblind_public_inputs
             )?,
@@ -237,6 +249,7 @@ impl DarkpoolContract {
         assert!(
             self.verify(
                 VALID_REBLIND_CIRCUIT_ID,
+                valid_reblind_vkey,
                 party_1_valid_reblind_proof,
                 party_1_valid_reblind_public_inputs
             )?,
@@ -250,6 +263,7 @@ impl DarkpoolContract {
         assert!(
             self.verify(
                 VALID_MATCH_SETTLE_CIRCUIT_ID,
+                valid_match_settle_vkey,
                 valid_match_settle_proof,
                 valid_match_settle_public_inputs
             )?,
@@ -278,13 +292,10 @@ impl DarkpoolContract {
 /// Internal helper methods
 impl DarkpoolContract {
     /// Sets the verification key for the given circuit ID
-    pub fn set_vkey(&mut self, circuit_id: u8, vkey: Bytes) -> Result<(), Vec<u8>> {
+    pub fn set_vkey_hash(&mut self, circuit_id: u8, vkey_hash: B256) {
         // TODO: Assert well-formedness of the verification key
 
-        let mut slot = self.verification_keys.setter(circuit_id);
-        slot.set_bytes(vkey);
-
-        Ok(())
+        self.verification_key_hashes.insert(circuit_id, vkey_hash);
     }
 
     /// Marks the given nullifier as spent
@@ -309,14 +320,16 @@ impl DarkpoolContract {
     pub fn verify(
         &mut self,
         circuit_id: u8,
+        vkey: Bytes,
         proof: Bytes,
         public_inputs: Bytes,
     ) -> Result<bool, Vec<u8>> {
-        let vkey_bytes = self.verification_keys.get(circuit_id).get_bytes();
-        assert!(!vkey_bytes.is_empty(), "No verification key for circuit ID");
+        let vkey_hash = self.verification_key_hashes.get(circuit_id);
+        assert!(!vkey_hash.is_zero(), "No verification key for circuit ID");
+        assert_eq!(vkey_hash, keccak(&vkey), "Invalid verification key");
 
         let verifier_address = self.verifier_address.get();
-        let verification_bundle_ser = [vkey_bytes, proof.into(), public_inputs.into()].concat();
+        let verification_bundle_ser = [vkey.0, proof.0, public_inputs.0].concat();
         let result = static_call(self, verifier_address, &verification_bundle_ser)?;
 
         Ok(result[0] != 0)
